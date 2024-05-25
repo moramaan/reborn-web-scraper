@@ -1,0 +1,10 @@
+# ignore node_modules
+node_modules
+
+# ignore all .env files. 
+# change this if you want to track .env files, but don't commit your secrets!
+.env*
+
+# ignore results folder and content of
+results
+results/*.json
