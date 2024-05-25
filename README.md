@@ -1,7 +1,3 @@
-Certainly! Here's the updated README with the addition:
-
----
-
 # Reborn Web Scraper
 
 Welcome to Reborn Web Scraper!
