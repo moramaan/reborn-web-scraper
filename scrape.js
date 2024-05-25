@@ -1,7 +1,17 @@
+require('dotenv').config();
+
 const fs = require("fs");
 const { chromium } = require("playwright");
 const path = require("path");
 const crypto = require("crypto");
+const cloudinary = require("cloudinary").v2;
+
+// Configure Cloudinary
+cloudinary.config({
+  cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
+  api_key: process.env.CLOUDINARY_API_KEY,
+  api_secret: process.env.CLOUDINARY_API_SECRET,
+});
 
 async function scrapePage(url) {
   const browser = await chromium.launch();
@@ -9,8 +19,6 @@ async function scrapePage(url) {
 
   try {
     await page.goto(url);
-
-    // Wait for the product listings to appear
     await page.waitForSelector(".ItemCardList__item");
 
     const products = await page.evaluate(() => {
@@ -18,12 +26,12 @@ async function scrapePage(url) {
         document.querySelectorAll(".ItemCardList__item")
       );
       const first10Products = productListings.slice(0, 10).map((product) => {
-        const name = product.getAttribute("title");
+        const title = product.getAttribute("title");
         const url = product.getAttribute("href");
         const priceElement = product.querySelector(".ItemCard__price");
         const price = priceElement ? priceElement.innerText.trim() : "";
-        const uuid = crypto.randomUUID(); // Generate UUID for each product using crypto module
-        return { uuid, name, url, price };
+        const id = crypto.randomUUID();
+        return { id, title, url, price };
       });
       return first10Products;
     });
@@ -37,6 +45,17 @@ async function scrapePage(url) {
   }
 }
 
+async function uploadImagesToCloudinary(imageUrls, productId) {
+  const uploadPromises = imageUrls.map((imageUrl) => {
+    return cloudinary.uploader.upload(imageUrl, {
+      folder: `reborn/${productId}`,
+    });
+  });
+
+  const uploadResults = await Promise.all(uploadPromises);
+  return uploadResults.map((result) => result.secure_url);
+}
+
 async function scrapeImagesAndDescriptionFromUrls(products) {
   const browser = await chromium.launch();
   const page = await browser.newPage();
@@ -48,12 +67,9 @@ async function scrapeImagesAndDescriptionFromUrls(products) {
       console.log("Visiting URL:", url);
 
       await page.goto(url);
-
-      // Wait for the wallapop-carousel to load
       await page.waitForSelector("wallapop-carousel");
       console.log("Wallapop carousel loaded");
 
-      // Extract image URLs
       const imageUrls = await page.evaluate(() => {
         const imageElements = document.querySelectorAll(
           'wallapop-carousel img[slot="carousel-content"]'
@@ -63,8 +79,6 @@ async function scrapeImagesAndDescriptionFromUrls(products) {
       console.log("Image URLs:", imageUrls);
 
       await page.waitForSelector(".item-detail_ItemDetail__description__7rXXT");
-
-      // Extract description
       const description = await page.evaluate(() => {
         const descriptionElement = document.querySelector(
           ".item-detail_ItemDetail__description__7rXXT"
@@ -73,31 +87,31 @@ async function scrapeImagesAndDescriptionFromUrls(products) {
       });
       console.log("Description:", description);
 
-      // Wait for the additional specifications to load
       await page.waitForSelector(
         ".item-detail-additional-specifications_ItemDetailAdditionalSpecifications__characteristics__Ut9iT"
       );
-      console.log("Additional specifications loaded");
-
-      // Extract state
-      const state = await page.evaluate(() => {
-        const stateElement = document.querySelector(
+      const condition = await page.evaluate(() => {
+        const conditionElement = document.querySelector(
           ".item-detail-additional-specifications_ItemDetailAdditionalSpecifications__characteristics__Ut9iT"
         );
-        return stateElement ? stateElement.textContent.trim() : "";
+        return conditionElement ? conditionElement.textContent.trim() : "";
       });
-      console.log("State:", state);
+      console.log("State:", condition);
 
-      // Add imageUrls, description, and state to new product object
+      // Upload images to Cloudinary
+      const cloudinaryUrls = await uploadImagesToCloudinary(
+        imageUrls,
+        product.uuid
+      );
+
       const productWithImagesAndDescription = {
         ...product,
         description,
-        state,
-        images: imageUrls,
+        condition,
+        images: cloudinaryUrls, // Use Cloudinary URLs
       };
       productsWithImagesAndDescription.push(productWithImagesAndDescription);
 
-      // If 10 products have been processed, exit the loop
       if (productsWithImagesAndDescription.length >= 10) {
         break;
       }
@@ -113,12 +127,9 @@ async function scrapeImagesAndDescriptionFromUrls(products) {
 
 async function main() {
   try {
-    // Get URL from command-line arguments
     const url = process.argv[2];
-
-    // Check if URL is provided
     if (!url) {
-      console.error("Usage: node final_scrape.js <url>");
+      console.error("Usage: node scrape.js <url>");
       process.exit(1);
     }
 
@@ -129,14 +140,12 @@ async function main() {
       const productsWithImagesAndDescription =
         await scrapeImagesAndDescriptionFromUrls(first10Products);
 
-      // Create 'results' directory if it doesn't exist
       const resultsDir = path.join(__dirname, "results");
       if (!fs.existsSync(resultsDir)) {
         fs.mkdirSync(resultsDir);
       }
 
-      // Save productsWithImagesAndDescription to a JSON file in the 'results' directory
-      const filePath = path.join(resultsDir, "motorbike_gear.json");
+      const filePath = path.join(resultsDir, "reborn_scraped_products.json");
       fs.writeFileSync(
         filePath,
         JSON.stringify(productsWithImagesAndDescription, null, 2)
@@ -149,7 +158,6 @@ async function main() {
     console.error("Error:", error);
     process.exit(1);
   } finally {
-    // Exit the Node.js process
     process.exit();
   }
 }
