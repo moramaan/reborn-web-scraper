@@ -50,6 +50,11 @@ async function scrapePage(url) {
 
 // Function to upload images to Cloudinary and get secure URLs
 async function uploadImagesToCloudinary(imageUrls, productId) {
+  if (process.argv.includes("--no-upload")) {
+    // return imageUrls.map((_) => "Test Mode"); // Return 'Test Mode' for each image
+    return [`Test Mode. Images: ${imageUrls.length}`];
+  }
+
   const uploadPromises = imageUrls.map((imageUrl) => {
     return cloudinary.uploader.upload(imageUrl, {
       folder: `reborn/${productId}`,
@@ -133,7 +138,8 @@ async function scrapProductDetails(products) {
         description,
         condition,
         reserved: isReserved,
-        images: cloudinaryUrls, 
+        images: cloudinaryUrls,
+        category: process.argv[3],
       };
       arrProductsWithDetails.push(productWithDetails);
 
@@ -155,8 +161,9 @@ async function scrapProductDetails(products) {
 async function main() {
   try {
     const url = process.argv[2];
-    if (!url) {
-      console.error("Usage: node scrape.js <url>");
+    const category = process.argv[3];
+    if (!url || !category) {
+      console.error("Usage: node scrape.js <url> <category> --no-upload");
       process.exit(1);
     }
 
@@ -164,16 +171,14 @@ async function main() {
     const first10Products = await scrapePage(url);
 
     if (first10Products.length > 0) {
-      const arrProductsWithDetails = await scrapProductDetails(
-        first10Products
-      );
+      const arrProductsWithDetails = await scrapProductDetails(first10Products);
 
       // Create a results directory if it doesn't exist
       const resultsDir = path.join(__dirname, "results");
       if (!fs.existsSync(resultsDir)) {
         fs.mkdirSync(resultsDir);
       }
-      
+
       // Save the results to a file
       const filePath = path.join(resultsDir, "reborn_scraped_products.json");
       fs.writeFileSync(
